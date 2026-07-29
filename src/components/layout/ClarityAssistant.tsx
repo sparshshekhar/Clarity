@@ -4,13 +4,20 @@
 import { useState } from "react";
 import { usePathname } from "next/navigation";
 import { Sparkles, X, Send } from "lucide-react";
+import { api } from "@/lib/api-client";
 
-type Message = { id: string; from: "user" | "clarity"; text: string };
+type Message = {
+  id: string;
+  from: "user" | "clarity";
+  text: string;
+  sources?: any[];
+};
 
 export default function ClarityAssistant() {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
   const [input, setInput] = useState("");
+  const [loading, setLoading] = useState(false);
   const [messages, setMessages] = useState<Message[]>([
     {
       id: "welcome",
@@ -19,26 +26,42 @@ export default function ClarityAssistant() {
     },
   ]);
 
-  // Hide the floating widget on the Chat page — it already has its own input
   if (pathname === "/chat") return null;
 
-  function handleSend() {
-    if (!input.trim()) return;
+  async function handleSend() {
+    if (!input.trim() || loading) return;
+
+    const question = input;
     setMessages((prev) => [
       ...prev,
-      { id: crypto.randomUUID(), from: "user", text: input },
+      { id: crypto.randomUUID(), from: "user", text: question },
     ]);
     setInput("");
-    setTimeout(() => {
+    setLoading(true);
+
+    try {
+      const result = await api.askClarity(question);
       setMessages((prev) => [
         ...prev,
         {
           id: crypto.randomUUID(),
           from: "clarity",
-          text: "Got it — once the backend is wired up, I'll answer this from your project's docs and code.",
+          text: result.answer,
+          sources: result.sources,
         },
       ]);
-    }, 500);
+    } catch (err) {
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: crypto.randomUUID(),
+          from: "clarity",
+          text: "Sorry, I ran into an error answering that. Please try again.",
+        },
+      ]);
+    } finally {
+      setLoading(false);
+    }
   }
 
   return (
@@ -68,9 +91,19 @@ export default function ClarityAssistant() {
                     : "bg-white/5 self-start"
                 }`}
               >
-                {m.text}
+                <p>{m.text}</p>
+                {m.sources && m.sources.length > 0 && (
+                  <p className="text-[11px] text-white/40 mt-1.5">
+                    Source: {m.sources[0].doc_name}
+                  </p>
+                )}
               </div>
             ))}
+            {loading && (
+              <div className="text-[13px] px-3 py-2 rounded-lg bg-white/5 self-start text-white/40">
+                Thinking...
+              </div>
+            )}
           </div>
 
           <div className="flex items-center gap-2 px-3 py-3 border-t border-white/10">
@@ -83,7 +116,8 @@ export default function ClarityAssistant() {
             />
             <button
               onClick={handleSend}
-              className="bg-indigo-500 hover:bg-indigo-600 rounded-md p-1.5"
+              disabled={loading}
+              className="bg-indigo-500 hover:bg-indigo-600 disabled:opacity-50 rounded-md p-1.5"
             >
               <Send size={14} />
             </button>

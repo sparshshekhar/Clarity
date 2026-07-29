@@ -1,40 +1,91 @@
 // src/app/(dashboard)/projects/[projectId]/page.tsx
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useParams } from "next/navigation";
-import { MOCK_PROJECTS } from "@/lib/mock-data";
-import {
-  MOCK_DOCS,
-  MOCK_CODE_FILES,
-  MOCK_LOGS,
-} from "@/lib/mock-project-detail";
-import {
-  FileText,
-  Code2,
-  ScrollText,
-  AlertCircle,
-  Info,
-  AlertTriangle,
-} from "lucide-react";
+import { api } from "@/lib/api-client";
+import { FileText, Code2, ScrollText, Plus, RefreshCw } from "lucide-react";
+import { MOCK_LOGS } from "@/lib/mock-project-detail";
+import UploadDocModal from "@/components/projects/UploadDocModal";
 
 type Tab = "docs" | "code" | "logs";
 
 export default function ProjectDetailPage() {
   const { projectId } = useParams<{ projectId: string }>();
   const [tab, setTab] = useState<Tab>("docs");
+  const [project, setProject] = useState<any>(null);
+  const [docs, setDocs] = useState<any[]>([]);
+  const [codeFiles, setCodeFiles] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [showUpload, setShowUpload] = useState(false);
+  const [syncing, setSyncing] = useState(false);
 
-  const project = MOCK_PROJECTS.find((p) => p.id === projectId);
-
-  if (!project) {
-    return <p className="text-sm text-white/60">Project not found.</p>;
+  function loadData() {
+    Promise.all([
+      api.getProject(projectId),
+      api.getDocuments(projectId),
+      api.getCodeFiles(projectId),
+    ])
+      .then(([projectData, docsData, codeData]) => {
+        setProject(projectData);
+        setDocs(docsData);
+        setCodeFiles(codeData);
+      })
+      .catch((err) =>
+        setError(err instanceof Error ? err.message : "Failed to load project"),
+      )
+      .finally(() => setLoading(false));
   }
+
+  useEffect(() => {
+    loadData();
+  }, [projectId]);
+
+  async function handleSync() {
+    setSyncing(true);
+    try {
+      await api.syncGithub(projectId);
+      loadData();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Sync failed");
+    } finally {
+      setSyncing(false);
+    }
+  }
+
+  if (loading)
+    return <p className="text-sm text-white/60">Loading project...</p>;
+  if (error) return <p className="text-sm text-red-400">{error}</p>;
+  if (!project)
+    return <p className="text-sm text-white/60">Project not found.</p>;
 
   return (
     <div>
-      <div className="mb-5">
-        <h1 className="text-lg font-medium">{project.name}</h1>
-        <p className="text-sm text-white/60 mt-1">{project.team}</p>
+      <div className="flex justify-between items-start mb-5">
+        <div>
+          <h1 className="text-lg font-medium">{project.name}</h1>
+          <p className="text-sm text-white/60 mt-1">{project.team}</p>
+        </div>
+        {tab === "docs" && (
+          <button
+            onClick={() => setShowUpload(true)}
+            className="flex items-center gap-1.5 text-[13px] bg-indigo-500 hover:bg-indigo-600 px-3 py-1.5 rounded-md"
+          >
+            <Plus size={14} />
+            Add document
+          </button>
+        )}
+        {tab === "code" && (
+          <button
+            onClick={handleSync}
+            disabled={syncing}
+            className="flex items-center gap-1.5 text-[13px] bg-indigo-500 hover:bg-indigo-600 disabled:opacity-50 px-3 py-1.5 rounded-md"
+          >
+            <RefreshCw size={14} className={syncing ? "animate-spin" : ""} />
+            {syncing ? "Syncing..." : "Sync from GitHub"}
+          </button>
+        )}
       </div>
 
       <div className="flex gap-2 mb-5 border-b border-white/10">
@@ -60,18 +111,22 @@ export default function ProjectDetailPage() {
 
       {tab === "docs" && (
         <div className="flex flex-col gap-2.5">
-          {MOCK_DOCS.map((doc) => (
+          {docs.length === 0 && (
+            <p className="text-sm text-white/40">
+              No documents indexed for this project yet.
+            </p>
+          )}
+          {docs.map((doc) => (
             <div
               key={doc.id}
               className="bg-white/[0.03] border border-white/10 rounded-xl p-4"
             >
               <div className="flex justify-between items-start">
-                <p className="text-sm font-medium">{doc.name}</p>
+                <p className="text-sm font-medium">{doc.doc_name}</p>
                 <span className="text-[11px] text-white/40 shrink-0">
-                  {doc.updatedAt}
+                  {new Date(doc.created_at).toLocaleDateString()}
                 </span>
               </div>
-              <p className="text-[13px] text-white/60 mt-1.5">{doc.excerpt}</p>
             </div>
           ))}
         </div>
@@ -79,17 +134,25 @@ export default function ProjectDetailPage() {
 
       {tab === "code" && (
         <div className="flex flex-col gap-2.5">
-          {MOCK_CODE_FILES.map((file) => (
+          {codeFiles.length === 0 && (
+            <p className="text-sm text-white/40">
+              No code synced yet. Click &quot;Sync from GitHub&quot; to index
+              this project&apos;s repository.
+            </p>
+          )}
+          {codeFiles.map((file) => (
             <div
               key={file.id}
               className="bg-white/[0.03] border border-white/10 rounded-xl p-4"
             >
               <p className="text-sm font-mono">{file.path}</p>
-              <p className="text-[13px] text-white/60 mt-1.5">
-                {file.lastCommit}
-              </p>
+              {file.last_commit_message && (
+                <p className="text-[13px] text-white/60 mt-1.5">
+                  {file.last_commit_message}
+                </p>
+              )}
               <p className="text-[11px] text-white/40 mt-1">
-                {file.commitTime}
+                Synced {new Date(file.last_synced_at).toLocaleDateString()}
               </p>
             </div>
           ))}
@@ -98,35 +161,24 @@ export default function ProjectDetailPage() {
 
       {tab === "logs" && (
         <div className="flex flex-col gap-2">
-          {MOCK_LOGS.map((log) => {
-            const Icon =
-              log.level === "error"
-                ? AlertCircle
-                : log.level === "warning"
-                  ? AlertTriangle
-                  : Info;
-            const color =
-              log.level === "error"
-                ? "text-red-400"
-                : log.level === "warning"
-                  ? "text-yellow-400"
-                  : "text-white/50";
-            return (
-              <div
-                key={log.id}
-                className="flex items-start gap-2.5 px-3.5 py-2.5 rounded-md bg-white/[0.03] border border-white/10"
-              >
-                <Icon size={15} className={`mt-0.5 shrink-0 ${color}`} />
-                <div>
-                  <p className={`text-[13px] font-mono ${color}`}>
-                    {log.message}
-                  </p>
-                  <p className="text-[11px] text-white/40 mt-0.5">{log.time}</p>
-                </div>
-              </div>
-            );
-          })}
+          {MOCK_LOGS.map((log) => (
+            <div
+              key={log.id}
+              className="px-3.5 py-2.5 rounded-md bg-white/[0.03] border border-white/10"
+            >
+              <p className="text-[13px] font-mono">{log.message}</p>
+              <p className="text-[11px] text-white/40 mt-0.5">{log.time}</p>
+            </div>
+          ))}
         </div>
+      )}
+
+      {showUpload && (
+        <UploadDocModal
+          projectId={projectId}
+          onClose={() => setShowUpload(false)}
+          onSuccess={loadData}
+        />
       )}
     </div>
   );

@@ -1,7 +1,11 @@
 // src/app/(dashboard)/home/page.tsx
+"use client";
+
+import { useState, useEffect } from "react";
 import StatCard from "@/components/dashboard/StatCard";
 import ActivityFeed from "@/components/dashboard/ActivityFeed";
 import ProjectCard from "@/components/dashboard/ProjectCard";
+import { api } from "@/lib/api-client";
 
 const activity = [
   {
@@ -24,7 +28,29 @@ const activity = [
   },
 ];
 
+function getBadgeStatus(project: any): "active" | "alert" | "past" | "public" {
+  if (project.access_reason === "active" || project.access_reason === "owner")
+    return "active";
+  if (project.access_reason === "alumni") return "past";
+  return "public";
+}
+
 export default function HomePage() {
+  const [projects, setProjects] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    api
+      .getProjects()
+      .then(setProjects)
+      .catch(() => setProjects([]))
+      .finally(() => setLoading(false));
+  }, []);
+
+  const activeCount = projects.filter(
+    (p) => p.access_reason === "active" || p.access_reason === "owner",
+  ).length;
+
   return (
     <div>
       <div className="flex justify-between items-center mb-5">
@@ -43,7 +69,7 @@ export default function HomePage() {
       </div>
 
       <div className="grid grid-cols-3 gap-3 mb-5">
-        <StatCard label="Active projects" value={4} />
+        <StatCard label="Active projects" value={activeCount} />
         <StatCard label="Open alerts" value={2} danger />
         <StatCard label="Questions this week" value={17} />
       </div>
@@ -57,26 +83,22 @@ export default function HomePage() {
         <p className="text-sm font-medium">Your projects</p>
         <span className="text-sm text-indigo-400 cursor-pointer">View all</span>
       </div>
-      <div className="grid grid-cols-3 gap-3">
-        <ProjectCard
-          id="1"
-          name="Checkout revamp"
-          team="Payments team"
-          status="alert"
-        />
-        <ProjectCard
-          id="2"
-          name="Onboarding flow v2"
-          team="Growth team"
-          status="active"
-        />
-        <ProjectCard
-          id="3"
-          name="Notification service"
-          team="Platform team"
-          status="past"
-        />
-      </div>
+
+      {loading ? (
+        <p className="text-sm text-white/40">Loading projects...</p>
+      ) : (
+        <div className="grid grid-cols-3 gap-3">
+          {projects.map((project) => (
+            <ProjectCard
+              key={project.id}
+              id={project.id}
+              name={project.name}
+              team={project.team}
+              status={getBadgeStatus(project)}
+            />
+          ))}
+        </div>
+      )}
     </div>
   );
 }

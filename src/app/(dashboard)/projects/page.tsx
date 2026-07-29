@@ -1,50 +1,83 @@
 // src/app/(dashboard)/projects/page.tsx
 "use client";
 
-import { useState } from "react";
-import { MOCK_PROJECTS } from "@/lib/mock-data";
-import { ProjectVisibility } from "@/types/project";
+import { useState, useEffect } from "react";
 import Link from "next/link";
+import { api } from "@/lib/api-client";
 
-type FilterTab = "all" | ProjectVisibility;
+type FilterTab = "all" | "active" | "alumni" | "public_only";
 
 const TABS: { label: string; value: FilterTab }[] = [
   { label: "All", value: "all" },
   { label: "Active", value: "active" },
-  { label: "Past", value: "past" },
-  { label: "Public", value: "public" },
+  { label: "Past", value: "alumni" },
+  { label: "Public", value: "public_only" },
 ];
 
-const STATUS_STYLES: Record<ProjectVisibility, string> = {
+const STATUS_STYLES: Record<string, string> = {
   active: "bg-green-500/15 text-green-400",
-  past: "bg-white/10 text-white/60",
-  public: "bg-white/10 text-white/60",
+  alumni: "bg-white/10 text-white/60",
+  owner: "bg-green-500/15 text-green-400",
+  none: "bg-white/10 text-white/60",
 };
 
-const STATUS_LABEL: Record<ProjectVisibility, string> = {
-  active: "Active",
-  past: "Past · read-only",
-  public: "Public",
-};
+function getBadge(project: any) {
+  if (project.access_reason === "active" || project.access_reason === "owner") {
+    return { label: "Active", key: "active" };
+  }
+  if (project.access_reason === "alumni") {
+    return { label: "Past · read-only", key: "alumni" };
+  }
+  return { label: "Public", key: "none" };
+}
 
 export default function ProjectsPage() {
   const [tab, setTab] = useState<FilterTab>("all");
+  const [projects, setProjects] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    api
+      .getProjects()
+      .then(setProjects)
+      .catch((err) =>
+        setError(
+          err instanceof Error ? err.message : "Failed to load projects",
+        ),
+      )
+      .finally(() => setLoading(false));
+  }, []);
 
   const filtered =
     tab === "all"
-      ? MOCK_PROJECTS
-      : MOCK_PROJECTS.filter((p) => p.visibility === tab);
+      ? projects
+      : projects.filter((p) => {
+          if (tab === "public_only") return !p.access_reason;
+          return (
+            p.access_reason === tab ||
+            (tab === "active" && p.access_reason === "owner")
+          );
+        });
+
+  const activeCount = projects.filter(
+    (p) => p.access_reason === "active" || p.access_reason === "owner",
+  ).length;
+  const alumniCount = projects.filter(
+    (p) => p.access_reason === "alumni",
+  ).length;
+  const publicCount = projects.filter((p) => !p.access_reason).length;
+
+  if (loading)
+    return <p className="text-sm text-white/60">Loading projects...</p>;
+  if (error) return <p className="text-sm text-red-400">{error}</p>;
 
   return (
     <div>
-      <div className="flex justify-between items-center mb-1">
-        <h1 className="text-lg font-medium">Your projects</h1>
-      </div>
+      <h1 className="text-lg font-medium mb-1">Your projects</h1>
       <p className="text-sm text-white/60 mb-5">
-        {MOCK_PROJECTS.filter((p) => p.visibility === "active").length} active,{" "}
-        {MOCK_PROJECTS.filter((p) => p.visibility === "past").length} from
-        history, {MOCK_PROJECTS.filter((p) => p.visibility === "public").length}{" "}
-        public to your team
+        {activeCount} active, {alumniCount} from history, {publicCount} public
+        to your team
       </p>
 
       <div className="flex gap-2 mb-5">
@@ -64,27 +97,33 @@ export default function ProjectsPage() {
       </div>
 
       <div className="grid grid-cols-3 gap-3">
-        {filtered.map((project) => (
-          <Link
-            key={project.id}
-            href={`/projects/${project.id}`}
-            className="block bg-white/[0.03] border border-white/10 rounded-xl p-4 hover:border-white/25 transition-colors"
-          >
-            <div className="flex justify-between items-start">
-              <p className="font-medium text-sm">{project.name}</p>
-              <span
-                className={`text-[11px] px-2 py-0.5 rounded-md whitespace-nowrap ${STATUS_STYLES[project.visibility]}`}
-              >
-                {STATUS_LABEL[project.visibility]}
-              </span>
-            </div>
-            <p className="text-xs text-white/60 mt-1.5">{project.team}</p>
-            <p className="text-xs text-white/40 mt-3">
-              Updated {project.updatedAt}
-            </p>
-          </Link>
-        ))}
+        {filtered.map((project) => {
+          const badge = getBadge(project);
+          return (
+            <Link
+              key={project.id}
+              href={`/projects/${project.id}`}
+              className="block bg-white/[0.03] border border-white/10 rounded-xl p-4 hover:border-white/25 transition-colors"
+            >
+              <div className="flex justify-between items-start">
+                <p className="font-medium text-sm">{project.name}</p>
+                <span
+                  className={`text-[11px] px-2 py-0.5 rounded-md whitespace-nowrap ${STATUS_STYLES[badge.key]}`}
+                >
+                  {badge.label}
+                </span>
+              </div>
+              <p className="text-xs text-white/60 mt-1.5">{project.team}</p>
+            </Link>
+          );
+        })}
       </div>
+
+      {filtered.length === 0 && !loading && (
+        <p className="text-sm text-white/40 mt-4">
+          No projects in this view yet.
+        </p>
+      )}
 
       <div className="mt-5 border border-dashed border-white/20 rounded-xl p-4 text-center">
         <p className="text-[13px] text-white/40">

@@ -4,16 +4,28 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Sparkles } from "lucide-react";
+import { api, saveToken } from "@/lib/api-client";
 
 export default function LoginPage() {
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
 
-  function handleLogin(e: React.FormEvent) {
+  async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
-    // placeholder — wire this to your real auth endpoint once the backend exists
-    router.push("/home");
+    setError(null);
+    setLoading(true);
+    try {
+      const result = await api.login(email, password);
+      saveToken(result.access_token);
+      router.push("/home");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Login failed");
+    } finally {
+      setLoading(false);
+    }
   }
 
   return (
@@ -55,23 +67,20 @@ export default function LoginPage() {
           />
         </div>
 
+        {error && (
+          <p className="text-xs text-red-400 bg-red-500/10 border border-red-500/20 rounded-md px-3 py-2">
+            {error}
+          </p>
+        )}
+
         <button
           type="submit"
-          className="w-full bg-indigo-500 hover:bg-indigo-600 rounded-md py-2.5 text-sm font-medium mt-2"
+          disabled={loading}
+          className="w-full bg-indigo-500 hover:bg-indigo-600 disabled:opacity-50 rounded-md py-2.5 text-sm font-medium mt-2"
         >
-          Sign in
+          {loading ? "Signing in..." : "Sign in"}
         </button>
       </form>
-
-      <div className="flex items-center gap-3 my-5">
-        <div className="flex-1 h-px bg-white/10" />
-        <span className="text-xs text-white/40">or</span>
-        <div className="flex-1 h-px bg-white/10" />
-      </div>
-
-      <button className="w-full border border-white/10 hover:bg-white/5 rounded-md py-2.5 text-sm flex items-center justify-center gap-2">
-        Continue with Google Workspace
-      </button>
 
       <p className="text-xs text-white/40 text-center mt-6">
         Access is scoped to your company domain and existing project
